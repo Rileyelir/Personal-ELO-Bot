@@ -2,6 +2,7 @@ from os import getenv
 from dotenv import load_dotenv
 import discord
 from discord import app_commands
+import trueskill as ts
 
 load_dotenv()
 token = getenv("TOKEN")
