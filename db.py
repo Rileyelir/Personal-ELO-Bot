@@ -13,36 +13,45 @@ async def get_json(path: str):
             return json.load(file)
     except FileNotFoundError:
         return None
-    
-async def set_value(path: str, key: str, value):
-    """Sets a value within the specified .json file."""
-    new = await get_json(path)
-    if new == None:
-        return
-        
-    new[key] = value
-    await set_json(path, new)
 
-async def get_value(path: str, keys: [str]):
-    """Safely retrieves a value from the specified .json file. Creates the .json if not found."""
-    data = await get_json(path)
-    if data == None:
-        await set_json(path, {})
+# Program Specific
+async def set_rating(serverID: int, userID: int, mu: float, sigma: float):
+    serverID = str(serverID)
+    userID = str(userID)
+
+    ratings = await get_json("skill-ratings.json")
+    if ratings is None:
+        await set_json("skill-ratings.json", {})
+        ratings = {}
+
+    if serverID not in ratings:
+        ratings[serverID] = {}
+    
+    try:
+        if ratings[serverID][userID]:
+            return False
+    except KeyError:
+        ratings[serverID][userID] = [mu, sigma]
+        await set_json("skill-ratings.json", ratings)
+        return True
+
+async def get_rating(serverID: int, userID: int):
+    serverID = str(serverID)
+    userID = str(userID)
+
+    ratings = await get_json("skill-ratings.json")
+    try:
+        return ratings[serverID][userID]
+    except KeyError, TypeError:
         return None
 
-    current = data
-    for key in keys:
-        try:
-            if current[key] != None:
-                current = current[key]
-            else:
-                break
-        except KeyError:
-            print("Key Error!")
-    return current
-
-# Program-specific functions
-
+async def get_all_ratings(serverID: int):
+    serverID = str(serverID)
+    ratings = await get_json("skill-ratings.json")
+    try:
+        return ratings[serverID]
+    except KeyError, TypeError:
+        return None
 
 # testing
 if __name__ == "__main__":
