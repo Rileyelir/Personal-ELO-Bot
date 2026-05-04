@@ -27,7 +27,7 @@ async def hello(interaction: discord.Interaction):
 
 @client.tree.command(name="opt", description="Enter the ranked system in this server.")
 async def opt(interaction: discord.Interaction):
-    newRating = ts.Rating(500, 160)
+    newRating = ts.Rating(500, 160) # DEFAULT RATING, FIRST NUMBER IS BASE AND SECOND IS ± CONFIDENCE
     result = await db.set_rating(interaction.guild.id, interaction.user.id, newRating.mu, newRating.sigma)
     if result:
         await interaction.response.send_message(f"Opted in successfully, you start at {int(newRating.mu)}±{int(newRating.sigma)}")
@@ -45,10 +45,20 @@ async def check(interaction: discord.Interaction):
 @client.tree.command(name="leaderboard", description="See your placement along the top 10 players in the server.")
 async def leaderboard(interaction: discord.Interaction):
     ratings = await db.get_all_ratings(interaction.guild.id)
+    if ratings is None:
+        return
+    print(ratings)
+
     embed = discord.Embed(
         title="Leaderboard",
         color=discord.Color.from_rgb(0,0,255)
     )
+
+    index = 1
+    for user in ratings:
+        embed.add_field(name=f"{index}: {user}", value=f"{int(ratings[user][0])}±{int(ratings[user][1])}") # not right
+        index += 1
+
     await interaction.response.send_message(embed=embed)
 
 client.run(token)
