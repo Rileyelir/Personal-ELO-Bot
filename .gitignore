@@ -1,2 +1,4 @@
 .env
 *.json
+__pycache__
+__pycache__/db.cpython-314.pyc
