@@ -66,8 +66,21 @@ async def leaderboard(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+challenges = []
+
 @client.tree.command(name="challenge", description="Find an optimal opponent to challenge or manually select someone to challenge.")
 async def challenge(interaction: discord.Interaction, opponent: discord.Member = None):
+    async def on_accept(m1: discord.Member, m2: discord.Member):
+        challenges.append(f"{m1.id}-{m2.id}")
+
+    for c in challenges:
+        cNew = str.split(c, "-")
+        if str(interaction.user.id) in cNew:
+            opponentFromActiveChallengeID = cNew[0] if int(cNew[0]) != interaction.user.id else cNew[1]
+            opponentFromActiveChallenge = await interaction.guild.fetch_member(int(opponentFromActiveChallengeID))
+            await interaction.response.send_message(f"You already have an active challenge out with {opponentFromActiveChallenge.mention}.", ephemeral=True)
+            return
+
     if opponent:
         if opponent.id == interaction.user.id:
             await interaction.response.send_message("You can't challenge yourself!", ephemeral=True)
@@ -90,7 +103,7 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
         )
         embed.set_footer(text=f"This challenge has a quality of {env.quality_1vs1(env.Rating(selfRating[0],selfRating[1]),env.Rating(oppRating[0],oppRating[1]))*100:.1f}%.")
         
-        view = views.ChallengeView(interaction.user, opponent)
+        view = views.ChallengeView(interaction.user, opponent, on_accept)
         await interaction.response.send_message(content=f"You've been challenged, {opponent.mention}!", embed=embed, view=view)
         view.message = await interaction.original_response()
     else:
@@ -102,6 +115,8 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
 
         currentChoice = [0.0, None]
         for key in ratings:
+            if key == str(interaction.user.id):
+                continue
             quality = env.quality_1vs1(env.Rating(selfRating[0], selfRating[1]), env.Rating(ratings[key][0], ratings[key][1]))
             if quality > currentChoice[0]:
                 currentChoice = [quality, key]
@@ -115,7 +130,7 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
         )
         embed.set_footer(text=f"This challenge was matchmade with a quality of {currentChoice[0]*100:.1f}%.")
         
-        view = views.ChallengeView(interaction.user, member)
+        view = views.ChallengeView(interaction.user, member, on_accept)
         await interaction.response.send_message(content=f"You've been challenged, {member.mention}!", embed=embed, view=view)
         view.message = await interaction.original_response()
 
