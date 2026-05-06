@@ -71,6 +71,11 @@ challenges = []
 @client.tree.command(name="challenge", description="Find an optimal opponent to challenge or manually select someone to challenge.")
 async def challenge(interaction: discord.Interaction, opponent: discord.Member = None):
     async def on_accept(m1: discord.Member, m2: discord.Member):
+        for c in challenges:
+            cNew = str.split(c, "-")
+            if str(m1.id) in cNew or str(m2.id) in cNew:
+                await interaction.response.send_message("One or both members of the accepted challenge are already in an active challenge.", ephemeral=True)
+                return
         challenges.append(f"{m1.id}-{m2.id}")
 
     for c in challenges:
@@ -133,5 +138,47 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
         view = views.ChallengeView(interaction.user, member, on_accept)
         await interaction.response.send_message(content=f"You've been challenged, {member.mention}!", embed=embed, view=view)
         view.message = await interaction.original_response()
+
+@client.tree.command(name="report", description="Report the results of your active challenge.")
+async def report(interaction: discord.Interaction, your_score: int, their_score: int):
+    activeChallenge = None
+
+    index = 0
+    for c in challenges:
+        cNew = str.split(c, "-")
+        if str(interaction.user.id) in cNew:
+            activeChallenge = cNew
+            break
+        index += 1
+
+    if activeChallenge is None:
+        await interaction.response.send_message("You have no active challenge to report at this time. If you do, you might have to confirm a pre-existing report.", ephemeral=True)
+        return
+    
+    try:
+        if activeChallenge[2] == "await":
+            await interaction.response.send_message("There is a report active for your challenge already.", ephemeral=True)
+            return
+    except IndexError: pass
+    
+    challenges[index] += "-await"
+
+    otherMemberID = activeChallenge[0] if int(activeChallenge[0]) != interaction.user.id else activeChallenge[1]
+    otherMember = await interaction.guild.fetch_member(int(otherMemberID))
+    yourRating = await db.get_rating(interaction.guild.id, interaction.user.id)
+    theirRating = await db.get_rating(interaction.guild.id, int(otherMemberID))
+
+    result = "lost"
+    if your_score > their_score: result = "won"
+    if your_score == their_score: result = "tied"
+
+    embed = discord.Embed(
+        title="CHALLENGE REPORT",
+        description=f"{interaction.user.mention} ({yourRating[0]}±{yourRating[1]}) has {result} against {otherMember.mention} ({theirRating[0]}±{theirRating[1]})",
+        color=discord.Color.from_rgb(255,255,0)
+    )
+    embed.add_field(name="Score", value=f"{your_score} - {their_score}")
+
+    await interaction.response.send_message(f"{otherMember.mention} must confirm the report.", embed=embed)
 
 client.run(token)

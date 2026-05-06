@@ -29,7 +29,7 @@ class ChallengeView(discord.ui.View):
         )
         embed.set_footer(text="Use /report to finalize challenge with set results.")
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(f"{self.challenger.mention}, your challenge has been accepted.", embed=embed)
         await self.on_accept(self.challenger, self.opponent)
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.red)
