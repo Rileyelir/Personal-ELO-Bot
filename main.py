@@ -8,6 +8,8 @@ import views
 import config
 import db
 
+# ---------------------------- Setup
+
 load_dotenv()
 token = getenv("TOKEN")
 
@@ -26,6 +28,17 @@ class Client(discord.Client):
 
 client = Client()
 
+# ---------------------------- Commands
+
+@client.tree.command(name="info", description="Provides information about this bot.")
+async def info(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="Information",
+        description="I am a PELOB, or Personal ELO Bot.\nI am designed to provide a self-hostable open-source simple and customizable ELO rating system powered by TrueSkill™ for Discord servers.\nTo opt into the rating system, use /opt and begin your journey!",
+        color=discord.Color.from_rgb(255,255,255)
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 @client.tree.command(name="opt", description="Enter the ranked system in this server.")
 async def opt(interaction: discord.Interaction):
     newRating = env.Rating(500, 160)
@@ -36,13 +49,27 @@ async def opt(interaction: discord.Interaction):
     else:
         await interaction.response.send_message(f"You cannot opt in, you have already done so.", ephemeral=True)
 
-@client.tree.command(name="check", description="Check your current rating in this server.")
-async def check(interaction: discord.Interaction):
-    result = await db.get_rating(interaction.guild.id, interaction.user.id)
+@client.tree.command(name="check", description="Check your or another player's current rating in this server.")
+async def check(interaction: discord.Interaction, member: discord.Member = None):
+    member = interaction.user if member is None else member
+    result = await db.get_rating(interaction.guild.id, member.id)
     if result:
-        await interaction.response.send_message(f"Your current rating in this server is {int(result[0])}±{int(result[1])}.", ephemeral=True)
+        embed = discord.Embed(
+            title="PLAYER REPORT",
+            description=f"Here is the report for {member.mention}.",
+            color=discord.Color.from_rgb(0,0,255)
+        )
+        embed.set_thumbnail(url=member.avatar.url)
+        embed.add_field(name="Rating", value=f"({int(result[0])}±{int(result[1])})")
+        embed.add_field(name="Matches Played", value="N/A")
+        embed.add_field(name="Win Ratio", value="N/A")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
     else:
-        await interaction.response.send_message("You are not currently opted into the rating system, use /opt to begin!", ephemeral=True)
+        if member.id == interaction.user.id:
+            await interaction.response.send_message("You are not currently opted into the rating system. Use /opt to get started!", ephemeral=True)
+        else:
+            await interaction.response.send_message("The player you checked is not currently opted into the rating system.")
 
 @client.tree.command(name="leaderboard", description="See the leaderboard for the server.")
 async def leaderboard(interaction: discord.Interaction):
@@ -75,7 +102,7 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
         for c in challenges:
             cNew = str.split(c, "-")
             if str(m1.id) in cNew or str(m2.id) in cNew:
-                await interaction.response.send_message("One or both members of the accepted challenge are already in an active challenge.", ephemeral=True)
+                await interaction.response.send_message("One or both players of the accepted challenge are already in an active challenge.", ephemeral=True)
                 return
         challenges.append(f"{m1.id}-{m2.id}")
 
@@ -99,7 +126,7 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
         selfRating = await db.get_rating(interaction.guild.id, interaction.user.id)
 
         if oppRating == None or selfRating == None:
-            await interaction.response.send_message("One or both members involved in the challenge are not yet opted into the rating system.", ephemeral=True)
+            await interaction.response.send_message("One or both players involved in the challenge are not yet opted into the rating system.", ephemeral=True)
             return
 
         embed = discord.Embed(
@@ -223,5 +250,73 @@ async def report(interaction: discord.Interaction, your_score: int, their_score:
     view = views.ReportView(interaction.user, otherMember, [your_score, their_score], on_confirm, on_dispute)
     await interaction.response.send_message(f"{otherMember.mention} must confirm the report.", embed=embed, view=view)
     view.message = await interaction.original_response()
+
+# ---------------------------- Admin Commands
+
+@client.tree.command(name="reset", description="ADMIN ONLY: Resets every player's rating to default.")
+@app_commands.default_permissions(administrator=True)
+async def reset(interaction: discord.Interaction):
+    await interaction.response.defer()
+    await db.set_all_ratings(interaction.guild.id, env.mu, env.sigma)
+    embed = discord.Embed(
+        title="RATING RESET",
+        description=f"Everyone's ratings have been reset to {env.mu}±{env.sigma}. This reset was initiated by {interaction.user.mention}. If this was a mistake, a backup is available with /restore.",
+        color=discord.Color.from_rgb(255, 0, 255)
+    )
+    await interaction.followup.send("@everyone", embed=embed)
+
+@client.tree.command(name="restore", description="ADMIN ONLY: Restores ratings from this server if a backup is available.")
+@app_commands.default_permissions(administrator=True)
+async def restore(interaction: discord.Interaction):
+    result = await db.restore_ratings(interaction.guild.id)
+    if result:
+        embed = discord.Embed(
+            title="RATINGS RESTORED",
+            description=f"Everyone's ratings have been rolled back to the previous backup, most likely from the time before a reset occured. Make sure to check your ratings! This rollback was initiated by {interaction.user.mention}.",
+            color=discord.Color.from_rgb(255, 0, 255)
+        )
+        await interaction.response.send_message("@everyone", embed=embed)
+    else:
+        await interaction.response.send_message("No backup could be found. If one does exist, make sure it is named \"backup-skill-ratings.json\".", ephemeral=True)
+
+@client.tree.command(name="decide", description="ADMIN ONLY: Make the decision on an ongoing challenge, used for disputes.")
+@app_commands.default_permissions(administrator=True)
+async def decide(interaction: discord.Interaction, winner: discord.Member, drawn: bool = False):
+    selectedChallenge = None
+    otherMember: discord.Member = None
+    for c in challenges:
+        cNew = c.split("-")
+        if str(winner.id) in cNew:
+            selectedChallenge = c
+            otherMemberID = int(cNew[0]) if cNew[0] != str(winner.id) else int(cNew[1])
+            otherMember = await interaction.guild.fetch_member(otherMemberID)
+            break
+    
+    if selectedChallenge:
+        challenges.remove(selectedChallenge)
+
+        winnerRatingValues = await db.get_rating(interaction.guild.id, winner.id)
+        otherRatingValues = await db.get_rating(interaction.guild.id, otherMember.id)
+        winnerRating = env.Rating(winnerRatingValues[0], winnerRatingValues[1])
+        otherRating = env.Rating(otherRatingValues[0], otherRatingValues[1])
+        winnerNewRating, otherNewRating = env.rate_1vs1(winnerRating, otherRating, drawn=drawn)
+
+        await db.set_rating(interaction.guild.id, winner.id, winnerNewRating.mu, winnerNewRating.sigma)
+        await db.set_rating(interaction.guild.id, otherMember.id, otherNewRating.mu, otherNewRating.sigma)
+
+        resultText = "won" if not drawn else "tied"
+        embed = discord.Embed(
+            title="CHALLENGE DECISION",
+            description=f"An admin ({interaction.user.mention}) has decided a challenge. {winner.mention} has {resultText} against {otherMember.mention}!",
+            color=discord.Color.from_rgb(255,0,255)
+        )
+        embed.add_field(name=winner.display_name, value=f"({int(winnerRating.mu)}±{int(winnerRating.sigma)}) -> ({int(winnerNewRating.mu)}±{int(winnerNewRating.sigma)})")
+        embed.add_field(name=otherMember.display_name, value=f"({int(otherRating.mu)}±{int(otherRating.sigma)}) -> ({int(otherNewRating.mu)}±{int(otherNewRating.sigma)})")
+
+        await interaction.response.send_message(f"{winner.mention} and {otherMember.mention}, your challenge has been decided.", embed=embed)
+    else:
+        await interaction.response.send_message("Could not find an active challenge for the specified winner.", ephemeral=True)
+
+# ---------------------------- RUN!!!
 
 client.run(token)

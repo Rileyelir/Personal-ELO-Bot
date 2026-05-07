@@ -76,7 +76,7 @@ class ReportView(discord.ui.View):
             return
         self.disable_all()
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"The report has been disputed, {self.confirmer.mention} and {self.reporter.mention} should submit a new more accurate report or contact an admin or the hoster of the bot.")
+        await interaction.response.send_message(f"The report has been disputed, {self.confirmer.mention} and {self.reporter.mention} should submit a new, more accurate report or contact an admin or the hoster of the bot.")
         await self.on_dispute(interaction.user.id)
 
     async def on_timeout(self):
