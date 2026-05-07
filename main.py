@@ -29,8 +29,9 @@ client = Client()
 @client.tree.command(name="opt", description="Enter the ranked system in this server.")
 async def opt(interaction: discord.Interaction):
     newRating = env.Rating(500, 160)
-    result = await db.set_rating(interaction.guild.id, interaction.user.id, newRating.mu, newRating.sigma)
-    if result:
+    result = await db.get_rating(interaction.guild.id, interaction.user.id)
+    if not result:
+        await db.set_rating(interaction.guild.id, interaction.user.id, newRating.mu, newRating.sigma)
         await interaction.response.send_message(f"Opted in successfully, you start at {int(newRating.mu)}±{int(newRating.sigma)}", ephemeral=True)
     else:
         await interaction.response.send_message(f"You cannot opt in, you have already done so.", ephemeral=True)
@@ -43,7 +44,7 @@ async def check(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("You are not currently opted into the rating system, use /opt to begin!", ephemeral=True)
 
-@client.tree.command(name="leaderboard", description="See your placement along the top 10 players in the server.")
+@client.tree.command(name="leaderboard", description="See the leaderboard for the server.")
 async def leaderboard(interaction: discord.Interaction):
     ratings = await db.get_all_ratings(interaction.guild.id)
     if ratings is None:
@@ -104,7 +105,7 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
         embed = discord.Embed(
             title="CHALLENGE REQUEST",
             description=f"{interaction.user.mention} ({int(selfRating[0])}±{int(selfRating[1])}) has requested to challenge {opponent.mention} ({int(oppRating[0])}±{int(oppRating[1])}).",
-            color=discord.Color.from_rgb(255,0,0)
+            color=discord.Color.from_rgb(255,0,100)
         )
         embed.set_footer(text=f"This challenge has a quality of {env.quality_1vs1(env.Rating(selfRating[0],selfRating[1]),env.Rating(oppRating[0],oppRating[1]))*100:.1f}%.")
         
@@ -141,6 +142,46 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
 
 @client.tree.command(name="report", description="Report the results of your active challenge.")
 async def report(interaction: discord.Interaction, your_score: int, their_score: int):
+    async def on_confirm(interaction: discord.Interaction, reporter: discord.Member, confirmer: discord.Member, score: [int]):
+        for c in challenges:
+            if str(reporter.id) in c.split("-"):
+                challenges.remove(c)
+        
+        reporterRatingValues = await db.get_rating(interaction.guild.id, reporter.id)
+        confirmerRatingValues = await db.get_rating(interaction.guild.id, confirmer.id)
+        reporterRating = env.Rating(reporterRatingValues[0], reporterRatingValues[1])
+        confirmerRating = env.Rating(confirmerRatingValues[0], confirmerRatingValues[1])
+        reporterNewRating = env.Rating()
+        confirmerNewRating = env.Rating()
+
+        if score[0] == score[1]:
+            reporterNewRating, confirmerNewRating = env.rate_1vs1(reporterRating, confirmerRating, drawn=True)
+        elif score[0] > score[1]:
+            reporterNewRating, confirmerNewRating = env.rate_1vs1(reporterRating, confirmerRating)
+        elif score[0] < score[1]:
+            confirmerNewRating, reporterNewRating = env.rate_1vs1(confirmerRating, reporterRating)
+
+        await db.set_rating(interaction.guild.id, reporter.id, reporterNewRating.mu, reporterNewRating.sigma)
+        await db.set_rating(interaction.guild.id, confirmer.id, confirmerNewRating.mu, confirmerNewRating.sigma)
+
+        embed = discord.Embed(
+            title="CHALLENGE FINISHED",
+            color=discord.Color.from_rgb(0, 255, 0)
+        )
+        embed.add_field(name=confirmer.display_name, value=f"({int(confirmerRating.mu)}±{int(confirmerRating.sigma)}) -> ({int(confirmerNewRating.mu)}±{int(confirmerNewRating.sigma)})")
+        embed.add_field(name=reporter.display_name, value=f"({int(reporterRating.mu)}±{int(reporterRating.sigma)}) -> ({int(reporterNewRating.mu)}±{int(reporterNewRating.sigma)})")
+        
+        await interaction.response.send_message(f"{reporter.mention} and {confirmer.mention} have finished.", embed=embed)
+
+    async def on_dispute(memberID: int):
+        index = 0
+        for c in challenges:
+            cNew = c.split("-")
+            if str(memberID) in cNew:
+                challenges[index] = f"{cNew[0]}-{cNew[1]}"
+                break
+            index += 1
+
     activeChallenge = None
 
     index = 0
@@ -174,11 +215,13 @@ async def report(interaction: discord.Interaction, your_score: int, their_score:
 
     embed = discord.Embed(
         title="CHALLENGE REPORT",
-        description=f"{interaction.user.mention} ({yourRating[0]}±{yourRating[1]}) has {result} against {otherMember.mention} ({theirRating[0]}±{theirRating[1]})",
+        description=f"{interaction.user.mention} ({int(yourRating[0])}±{int(yourRating[1])}) has {result} against {otherMember.mention} ({int(theirRating[0])}±{int(theirRating[1])}).",
         color=discord.Color.from_rgb(255,255,0)
     )
     embed.add_field(name="Score", value=f"{your_score} - {their_score}")
 
-    await interaction.response.send_message(f"{otherMember.mention} must confirm the report.", embed=embed)
+    view = views.ReportView(interaction.user, otherMember, [your_score, their_score], on_confirm, on_dispute)
+    await interaction.response.send_message(f"{otherMember.mention} must confirm the report.", embed=embed, view=view)
+    view.message = await interaction.original_response()
 
 client.run(token)

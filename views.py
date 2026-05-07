@@ -49,3 +49,41 @@ class ChallengeView(discord.ui.View):
     def disable_all(self):
         for item in self.children:
             item.disabled = True
+
+class ReportView(discord.ui.View):
+    def __init__(self, reporter: discord.Member, confirmer: discord.Member, score: [int], on_confirm, on_dispute):
+        super().__init__(timeout=120)
+        self.reporter = reporter
+        self.confirmer = confirmer
+        self.message = None
+        self.on_confirm = on_confirm
+        self.on_dispute = on_dispute
+        self.score = score
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.confirmer.id:
+            await interaction.response.send_message("Only the person involved in the challenge who didn't start the report can confirm the report.", ephemeral=True)
+            return
+        self.disable_all()
+        await interaction.message.edit(view=self)
+        await self.on_confirm(interaction, self.reporter, self.confirmer, self.score)
+
+    @discord.ui.button(label="Dispute", style=discord.ButtonStyle.red)
+    async def dispute(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.confirmer and interaction.user != self.reporter:
+            await interaction.response.send_message("Only someone involved with the challenge can dispute the report.", ephemeral=True)
+            return
+        self.disable_all()
+        await interaction.message.edit(view=self)
+        await interaction.response.send_message(f"The report has been disputed, {self.confirmer.mention} and {self.reporter.mention} should submit a new more accurate report or contact an admin or the hoster of the bot.")
+        await self.on_dispute(interaction.user.id)
+
+    async def on_timeout(self):
+        self.disable_all()
+        if self.message:
+            await self.message.edit(view=self)
+
+    def disable_all(self):
+        for item in self.children:
+            item.disabled = True

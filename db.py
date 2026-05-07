@@ -27,13 +27,9 @@ async def set_rating(serverID: int, userID: int, mu: float, sigma: float):
     if serverID not in ratings:
         ratings[serverID] = {}
     
-    try:
-        if ratings[serverID][userID]:
-            return False
-    except KeyError:
-        ratings[serverID][userID] = [mu, sigma]
-        await set_json("skill-ratings.json", ratings)
-        return True
+    ratings[serverID][userID] = [mu, sigma]
+    await set_json("skill-ratings.json", ratings)
+    return True
 
 async def get_rating(serverID: int, userID: int):
     serverID = str(serverID)
