@@ -81,6 +81,59 @@ async def get_all_ratings(serverID: int):
     except KeyError, TypeError:
         return None
 
-# testing
-if __name__ == "__main__":
-    pass
+async def add_match_data(serverID: int, userID: int, opponentID: int, winLossDraw: int): # winLossDraw is 0 for win, 1 for loss, and 2 for draw
+    serverID = str(serverID)
+    userID = str(userID)
+    
+    matchData = await get_json("match-data.json")
+    if matchData is None:
+        matchData = {}
+    if serverID not in matchData:
+        matchData[serverID] = {}
+    if userID not in matchData[serverID]:
+        matchData[serverID][userID] = []
+    
+    matchData[serverID][userID].append([winLossDraw, opponentID])
+    await set_json("match-data.json", matchData)
+
+async def get_match_data(serverID: int, userID: int):
+    serverID = str(serverID)
+    userID = str(userID)
+
+    matchData = await get_json("match-data.json")
+    if matchData is None:
+        matchData = {}
+    if serverID not in matchData:
+        matchData[serverID] = {}
+    if userID not in matchData[serverID]:
+        matchData[serverID][userID] = []
+
+    return matchData[serverID][userID]
+
+async def set_character(serverID: int, userID: int, character: str):
+    serverID = str(serverID)
+    userID = str(userID)
+
+    characters = await get_json("characters.json")
+    if characters is None:
+        characters = {}
+    if serverID not in characters:
+        characters[serverID] = {}
+    
+    characters[serverID][userID] = character
+    await set_json("characters.json", characters)
+
+async def get_character(serverID: int, userID: int):
+    serverID = str(serverID)
+    userID = str(userID)
+
+    characters = await get_json("characters.json")
+    if characters is None:
+        characters = {}
+    if serverID not in characters:
+        characters[serverID] = {}
+    
+    try:
+        return characters[serverID][userID]
+    except KeyError:
+        return None

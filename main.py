@@ -53,6 +53,21 @@ async def opt(interaction: discord.Interaction):
 async def check(interaction: discord.Interaction, member: discord.Member = None):
     member = interaction.user if member is None else member
     result = await db.get_rating(interaction.guild.id, member.id)
+    matchData = await db.get_match_data(interaction.guild.id, member.id)
+    character = await db.get_character(interaction.guild.id, member.id)
+    if character is None:
+        character = "N/A"
+
+    winRate = "N/A"
+    if not matchData is None:
+        wins = 0
+        losses = 0
+        for match in matchData:
+            if match[0] == 0: wins += 1
+            elif match[0] == 1: losses += 1
+        if wins != 0 or losses != 0:
+            winRate = f"{wins/(wins+losses)*100:.1f}%"
+
     if result:
         embed = discord.Embed(
             title="PLAYER REPORT",
@@ -61,15 +76,16 @@ async def check(interaction: discord.Interaction, member: discord.Member = None)
         )
         embed.set_thumbnail(url=member.avatar.url)
         embed.add_field(name="Rating", value=f"({int(result[0])}±{int(result[1])})")
-        embed.add_field(name="Matches Played", value="N/A")
-        embed.add_field(name="Win Ratio", value="N/A")
+        embed.add_field(name="Matches Played", value=f"{len(matchData)} " + ("matches" if len(matchData) > 1 else "match"))
+        embed.add_field(name="Win Rate", value=winRate)
+        embed.add_field(name="Character", value=character)
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
     else:
         if member.id == interaction.user.id:
             await interaction.response.send_message("You are not currently opted into the rating system. Use /opt to get started!", ephemeral=True)
         else:
-            await interaction.response.send_message("The player you checked is not currently opted into the rating system.")
+            await interaction.response.send_message("The player you checked is not currently opted into the rating system.", ephemeral=True)
 
 @client.tree.command(name="leaderboard", description="See the leaderboard for the server.")
 async def leaderboard(interaction: discord.Interaction):
@@ -183,10 +199,16 @@ async def report(interaction: discord.Interaction, your_score: int, their_score:
 
         if score[0] == score[1]:
             reporterNewRating, confirmerNewRating = env.rate_1vs1(reporterRating, confirmerRating, drawn=True)
+            await db.add_match_data(interaction.guild.id, reporter.id, confirmer.id, 2)
+            await db.add_match_data(interaction.guild.id, confirmer.id, reporter.id, 2)
         elif score[0] > score[1]:
             reporterNewRating, confirmerNewRating = env.rate_1vs1(reporterRating, confirmerRating)
+            await db.add_match_data(interaction.guild.id, reporter.id, confirmer.id, 0)
+            await db.add_match_data(interaction.guild.id, confirmer.id, reporter.id, 1)
         elif score[0] < score[1]:
             confirmerNewRating, reporterNewRating = env.rate_1vs1(confirmerRating, reporterRating)
+            await db.add_match_data(interaction.guild.id, reporter.id, confirmer.id, 1)
+            await db.add_match_data(interaction.guild.id, confirmer.id, reporter.id, 0)
 
         await db.set_rating(interaction.guild.id, reporter.id, reporterNewRating.mu, reporterNewRating.sigma)
         await db.set_rating(interaction.guild.id, confirmer.id, confirmerNewRating.mu, confirmerNewRating.sigma)
@@ -251,6 +273,11 @@ async def report(interaction: discord.Interaction, your_score: int, their_score:
     await interaction.response.send_message(f"{otherMember.mention} must confirm the report.", embed=embed, view=view)
     view.message = await interaction.original_response()
 
+@client.tree.command(name="character", description="Set your favorite character to show on your player report.")
+async def character(interaction: discord.Interaction, character: str):
+    await db.set_character(interaction.guild.id, interaction.user.id, character)
+    await interaction.response.send_message(f"Your character has been successfully set to \"{character}\".", ephemeral=True)
+
 # ---------------------------- Admin Commands
 
 @client.tree.command(name="reset", description="ADMIN ONLY: Resets every player's rating to default.")
@@ -303,6 +330,8 @@ async def decide(interaction: discord.Interaction, winner: discord.Member, drawn
 
         await db.set_rating(interaction.guild.id, winner.id, winnerNewRating.mu, winnerNewRating.sigma)
         await db.set_rating(interaction.guild.id, otherMember.id, otherNewRating.mu, otherNewRating.sigma)
+        await db.add_match_data(interaction.guild.id, winner.id, otherMember.id, 0 if not drawn else 2)
+        await db.add_match_data(interaction.guild.id, otherMember.id, winner.id, 1 if not drawn else 2)
 
         resultText = "won" if not drawn else "tied"
         embed = discord.Embed(
