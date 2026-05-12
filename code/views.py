@@ -4,9 +4,16 @@ import trueskill as ts
 import config
 import db
 
+async def format_text(template: str, **kwargs):
+    try:
+        return template.format(**kwargs)
+    except KeyError, IndexError:
+        return "This text is not supposed to show. The text template was formatted wrong, please contact the bot hoster who manages the configuration file with the command you used."
+
 class ChallengeView(discord.ui.View):
     def __init__(self, challenger: discord.Member, opponent: discord.Member, on_accept):
         super().__init__(timeout=120)
+
         self.challenger = challenger
         self.opponent = opponent
         self.message = None  # set after sending so on_timeout can edit it
@@ -14,8 +21,9 @@ class ChallengeView(discord.ui.View):
 
     @discord.ui.button(label="Accept", style=discord.ButtonStyle.green)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cfg = await config.get_cfg()
         if interaction.user != self.opponent:
-            await interaction.response.send_message("Only the challenged member can interact with this.", ephemeral=True)
+            await interaction.response.send_message(cfg["challenge-view"]["outside-interaction"], ephemeral=True)
             return
         self.disable_all()
         await interaction.message.edit(view=self)
@@ -23,12 +31,13 @@ class ChallengeView(discord.ui.View):
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.red)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cfg = await config.get_cfg()
         if interaction.user != self.opponent:
-            await interaction.response.send_message("Only the challenged member can interact with this.", ephemeral=True)
+            await interaction.response.send_message(cfg["challenge-view"]["outside-interaction"], ephemeral=True)
             return
         self.disable_all()
         await interaction.message.edit(view=self)
-        await interaction.response.send_message("Challenge declined.")
+        await interaction.response.send_message(cfg["challenge-view"]["decline"])
 
     async def on_timeout(self):
         self.disable_all()
@@ -51,8 +60,9 @@ class ReportView(discord.ui.View):
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cfg = await config.get_cfg()
         if interaction.user.id != self.confirmer.id:
-            await interaction.response.send_message("Only the person involved in the challenge who didn't start the report can confirm the report.", ephemeral=True)
+            await interaction.response.send_message(cfg["report-view"]["not-confirmer"], ephemeral=True)
             return
         self.disable_all()
         await interaction.message.edit(view=self)
@@ -60,12 +70,14 @@ class ReportView(discord.ui.View):
 
     @discord.ui.button(label="Dispute", style=discord.ButtonStyle.red)
     async def dispute(self, interaction: discord.Interaction, button: discord.ui.Button):
+        cfg = await config.get_cfg()
         if interaction.user != self.confirmer and interaction.user != self.reporter:
-            await interaction.response.send_message("Only someone involved with the challenge can dispute the report.", ephemeral=True)
+            await interaction.response.send_message(cfg["report-view"]["outside-dispute"], ephemeral=True)
             return
         self.disable_all()
         await interaction.message.edit(view=self)
-        await interaction.response.send_message(f"The report has been disputed, {self.confirmer.mention} and {self.reporter.mention} should submit a new, more accurate report or contact an admin or the hoster of the bot.")
+        msgContent = await format_text(cfg["report-view"]["dispute-success"], mention1=self.confirmer.mention, mention2=self.reporter.mention)
+        await interaction.response.send_message(msgContent)
         await self.on_dispute(interaction.user.id)
 
     async def on_timeout(self):

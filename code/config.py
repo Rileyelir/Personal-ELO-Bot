@@ -3,10 +3,12 @@ import asyncio
 
 import db
 
-async def reset(): # Returns configuration.json to the default configuration (called by db.py)
+async def return_default(): # Returns configuration.json to the default configuration (called by db.py)
     return {
         "default-rating": 500,
         "rating-format": "({rating}±{uncertainty})",
+        "rating-change": "{rating1} -> {rating2}",
+        "score-format": "{score1} - {score2}",
         "info": {
             "title": "Information",
             "description": "I am a PELOB, or Personal ELO Bot.\nI am designed to provide a self-hostable open-source simple and customizable ELO rating system powered by TrueSkill™ for Discord servers.\nTo opt into the rating system, use /opt and begin your journey!",
@@ -59,8 +61,55 @@ async def reset(): # Returns configuration.json to the default configuration (ca
                 "opponent-selected-footer": "This challenge has a quality of {quality:.1f}%.",
                 "matchmade-footer": "This challenge was matchmade with a quality of {quality:.1f}%."
             }
-        }
+        },
+        "challenge-view": {
+            "outside-interaction": "Only the challenged member can interact with this.",
+            "decline": "Challenge declined."
+        },
+        "report": {
+            "confirm-content": "{mention1} and {mention2} have finished.",
+            "confirm-embed": {
+                "title": "CHALLENGE FINISHED",
+                "color": [0, 255, 0]
+            },
+            "no-active-challenge": "You have no active challenge to report at this time. If you do, you might have to confirm a pre-existing report.",
+            "pre-existing-report": "There is a report active for your challenge already.",
+            "title": "CHALLENGE REPORT",
+            "result-win": "{mention1} {rating1} has won against {mention2} {rating2}!",
+            "result-lose": "{mention1} {rating1} has lost against {mention2} {rating2}.",
+            "result-draw": "{mention1} {rating1} and {mention2} {rating2} have drawn.",
+            "color": [255, 255, 0],
+            "score": "Score",
+            "content": "{mention} must confirm the report."
+        },
+        "report-view": {
+            "not-confirmer": "Only the person involved in the challenge who didn't start the report can confirm the report.",
+            "outside-dispute": "Only someone involved with the challenge can dispute the report.",
+            "dispute-success": "The report has been disputed, {mention1} and {mention2} should submit a new, more accurate report or contact an admin or the hoster of the bot."
+        },
+        "reset": {
+            "title": "RATING RESET",
+            "description": "Everyone's ratings have been reset to {rating}. This reset was initiated by {mention}. If this was a mistake, a backup is available with /restore.",
+            "color": [255, 0, 255],
+            "content": "Ratings have been reset @everyone."
+        },
+        "restore": {
+            "title": "RATINGS RESTORED",
+            "description": "Everyone's ratings have been rolled back to the previous backup, most likely from the time before a reset occured. Make sure to check your ratings! This rollback was initiated by {mention}.",
+            "color": [255, 0, 255],
+            "content": "All ratings have been restored @everyone.",
+            "no-backup": "No backup could be found. If one does exist, make sure it is named \"backup-skill-ratings.json\"."
+        },
+        "decide": {
+            "title": "CHALLENGE DECISION",
+            "result-win": "An admin ({admin}) has decided a challenge. {winner} has won against {loser}!",
+            "result-draw": "An admin ({admin}) has decided a challenge. {winner} and {loser} have drawn.",
+            "color": [255, 0, 255],
+            "content": "{mention1} and {mention2}, your challenge has been decided.",
+            "challenge-not-found": "Could not find an active challenge for the specified winner."
+        },
+        "character": "Your character has been successfully set to \"{character}\"."
     }
 
 async def get_cfg():
-    return await db.get_config(reset)
+    return await db.get_config(return_default)
