@@ -13,52 +13,76 @@ import db
 load_dotenv()
 token = getenv("TOKEN")
 
-env = config.tsenv
-
 class Client(discord.Client):
     def __init__(self):
         super().__init__(intents=discord.Intents.all())
         self.tree = app_commands.CommandTree(self)
+        self.config = {}
 
     async def setup_hook(self):
-        await self.tree.sync()  # Register slash commands on startup
+        await self.tree.sync()
+        print("[setup_hook] Command tree synced")
+
+        self.config = await config.get_cfg()
+        print("[setup_hook] Configuration loaded")
+
+        self.env = ts.TrueSkill(
+            self.config["default-rating"],
+            self.config["default-rating"] / 3,
+            self.config["default-rating"] / 6,
+            self.config["default-rating"] / 300,
+            0.0
+        )
+        print("[setup_hook] TrueSkill environment set (based on config's default-rating)")
 
     async def on_ready(self):
         print(f'Logged on as {self.user}!')
 
 client = Client()
 
+# ---------------------------- Extra Functions
+
+async def format_text(template: str, **kwargs):
+    try:
+        return template.format(**kwargs)
+    except KeyError, IndexError:
+        return "This text is not supposed to show. The text template was formatted wrong, please contact the bot hoster who manages the configuration file with the command you used."
+
 # ---------------------------- Commands
 
 @client.tree.command(name="info", description="Provides information about this bot.")
 async def info(interaction: discord.Interaction):
+    cfg = client.config["info"]
     embed = discord.Embed(
-        title="Information",
-        description="I am a PELOB, or Personal ELO Bot.\nI am designed to provide a self-hostable open-source simple and customizable ELO rating system powered by TrueSkill™ for Discord servers.\nTo opt into the rating system, use /opt and begin your journey!",
-        color=discord.Color.from_rgb(255,255,255)
+        title=cfg["title"],
+        description=cfg["description"],
+        color=discord.Color.from_rgb(*cfg["color"])
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @client.tree.command(name="opt", description="Enter the ranked system in this server.")
 async def opt(interaction: discord.Interaction):
-    newRating = env.Rating(500, 160)
+    cfg = client.config["opt"]
+    newRating = client.env.Rating(500, 160)
     result = await db.get_rating(interaction.guild.id, interaction.user.id)
     if not result:
         await db.set_rating(interaction.guild.id, interaction.user.id, newRating.mu, newRating.sigma)
-        await interaction.response.send_message(f"Opted in successfully, you start at {int(newRating.mu)}±{int(newRating.sigma)}", ephemeral=True)
+        msgContent = await format_text(cfg["success"], rating=f"{int(newRating.mu)}±{int(newRating.sigma)}")
+        await interaction.response.send_message(msgContent, ephemeral=True)
     else:
-        await interaction.response.send_message(f"You cannot opt in, you have already done so.", ephemeral=True)
+        await interaction.response.send_message(cfg["fail"], ephemeral=True)
 
 @client.tree.command(name="check", description="Check your or another player's current rating in this server.")
 async def check(interaction: discord.Interaction, member: discord.Member = None):
+    cfg = client.config["check"]
     member = interaction.user if member is None else member
     result = await db.get_rating(interaction.guild.id, member.id)
     matchData = await db.get_match_data(interaction.guild.id, member.id)
     character = await db.get_character(interaction.guild.id, member.id)
     if character is None:
-        character = "N/A"
+        character = cfg["no-character-value"]
 
-    winRate = "N/A"
+    winRate = cfg["no-winrate-value"]
     if not matchData is None:
         wins = 0
         losses = 0
@@ -69,40 +93,45 @@ async def check(interaction: discord.Interaction, member: discord.Member = None)
             winRate = f"{wins/(wins+losses)*100:.1f}%"
 
     if result:
+        descriptionText = await format_text(cfg["description"], mention=member.mention)
         embed = discord.Embed(
-            title="PLAYER REPORT",
-            description=f"Here is the report for {member.mention}.",
-            color=discord.Color.from_rgb(0,0,255)
+            title=cfg["title"],
+            description=descriptionText,
+            color=discord.Color.from_rgb(*cfg["color"])
         )
         embed.set_thumbnail(url=member.avatar.url)
-        embed.add_field(name="Rating", value=f"({int(result[0])}±{int(result[1])})")
-        embed.add_field(name="Matches Played", value=f"{len(matchData)} " + ("matches" if len(matchData) > 1 else "match"))
-        embed.add_field(name="Win Rate", value=winRate)
-        embed.add_field(name="Character", value=character)
+
+        ratingText = await format_text(client.config["rating-format"], rating=int(result[0]), uncertainty=int(result[1]))
+        embed.add_field(name=cfg["rating"], value=ratingText)
+        embed.add_field(name=cfg["matches"], value=f"{len(matchData)} " + (cfg["plural-match"] if len(matchData) != 1 else cfg["single-match"]))
+        embed.add_field(name=cfg["winrate"], value=winRate)
+        embed.add_field(name=cfg["char"], value=character)
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
     else:
         if member.id == interaction.user.id:
-            await interaction.response.send_message("You are not currently opted into the rating system. Use /opt to get started!", ephemeral=True)
+            await interaction.response.send_message(cfg["self-fail"], ephemeral=True)
         else:
-            await interaction.response.send_message("The player you checked is not currently opted into the rating system.", ephemeral=True)
+            await interaction.response.send_message(cfg["other-fail"], ephemeral=True)
 
 @client.tree.command(name="leaderboard", description="See the leaderboard for the server.")
 async def leaderboard(interaction: discord.Interaction):
+    cfg = client.config["leaderboard"]
     ratings = await db.get_all_ratings(interaction.guild.id)
     if ratings is None:
         return
 
     embed = discord.Embed(
-        title="Leaderboard",
-        color=discord.Color.from_rgb(0,0,255)
+        title=cfg["title"],
+        color=discord.Color.from_rgb(*cfg["color"])
     )
 
     index = 1
     rankedList = dict(sorted(ratings.items(), key=lambda item: item[1][0]-item[1][1], reverse=True))
     for user in rankedList:
         member = await interaction.guild.fetch_member(int(user))
-        embed.add_field(name=f"{index}: {member.display_name}", value=f"{int(rankedList[user][0])}±{int(rankedList[user][1])}")
+        ratingText = await format_text(client.config["rating-format"], rating=int(rankedList[user][0]), uncertainty=int(rankedList[user][1]))
+        embed.add_field(name=f"{index}: {member.display_name}", value=ratingText)
 
         if index == 1:
             embed.set_thumbnail(url=member.display_avatar.url)
@@ -114,12 +143,28 @@ challenges = []
 
 @client.tree.command(name="challenge", description="Find an optimal opponent to challenge or manually select someone to challenge.")
 async def challenge(interaction: discord.Interaction, opponent: discord.Member = None):
-    async def on_accept(m1: discord.Member, m2: discord.Member):
+    cfg = client.config["challenge"]
+    async def on_accept(m1: discord.Member, m2: discord.Member, acceptInteraction: discord.Interaction):
         for c in challenges:
             cNew = str.split(c, "-")
             if str(m1.id) in cNew or str(m2.id) in cNew:
-                await interaction.response.send_message("One or both players of the accepted challenge are already in an active challenge.", ephemeral=True)
+                await acceptInteraction.response.send_message(cfg["already-in-active"], ephemeral=True)
                 return
+        
+        challengerRating = await db.get_rating(interaction.guild.id, m1.id)
+        oppRating = await db.get_rating(interaction.guild.id, m2.id)
+        rating1 = await format_text(client.config["rating-format"], rating=int(challengerRating[0]), uncertainty=int(challengerRating[1]))
+        rating2 = await format_text(client.config["rating-format"], rating=int(oppRating[0]), uncertainty=int(oppRating[1]))
+        descriptionText = await format_text(cfg["accept-embed"]["description"], mention1=m1.mention, mention2=m2.mention, rating1=rating1, rating2=rating2)
+        embed = discord.Embed(
+            title=cfg["accept-embed"]["title"],
+            description=descriptionText,
+            color=discord.Color.from_rgb(*cfg["accept-embed"]["color"])
+        )
+        embed.set_footer(text=cfg["accept-embed"]["footer"])
+        responseContent = await format_text(cfg["accept-content"], mention=m1.mention)
+        await acceptInteraction.response.send_message(responseContent, embed=embed)
+
         challenges.append(f"{m1.id}-{m2.id}")
 
     for c in challenges:
@@ -127,60 +172,79 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
         if str(interaction.user.id) in cNew:
             opponentFromActiveChallengeID = cNew[0] if int(cNew[0]) != interaction.user.id else cNew[1]
             opponentFromActiveChallenge = await interaction.guild.fetch_member(int(opponentFromActiveChallengeID))
-            await interaction.response.send_message(f"You already have an active challenge out with {opponentFromActiveChallenge.mention}.", ephemeral=True)
+            msgContent = await format_text(cfg["self-active-fail"], mention=opponentFromActiveChallenge.mention)
+            await interaction.response.send_message(msgContent, ephemeral=True)
             return
+        if opponent: # doing this to avoid errors, might not be necessary
+            if str(opponent.id) in cNew:
+                await interaction.response.send_message(cfg["opponent-active-fail"], ephemeral=True)
+                return
 
     if opponent:
         if opponent.id == interaction.user.id:
-            await interaction.response.send_message("You can't challenge yourself!", ephemeral=True)
+            await interaction.response.send_message(cfg["cant-challenge-self"], ephemeral=True)
             return
         if opponent.id == client.user.id:
-            await interaction.response.send_message("You can't challenge me, I'm too strong.", ephemeral=True)
+            await interaction.response.send_message(cfg["cant-challenge-bot"], ephemeral=True)
             return
 
         oppRating = await db.get_rating(interaction.guild.id, opponent.id)
         selfRating = await db.get_rating(interaction.guild.id, interaction.user.id)
 
         if oppRating == None or selfRating == None:
-            await interaction.response.send_message("One or both players involved in the challenge are not yet opted into the rating system.", ephemeral=True)
+            await interaction.response.send_message(cfg["not-opted"], ephemeral=True)
             return
 
+        rating1 = await format_text(client.config["rating-format"], rating=int(selfRating[0]), uncertainty=int(selfRating[1]))
+        rating2 = await format_text(client.config["rating-format"], rating=int(oppRating[0]), uncertainty=int(oppRating[1]))
+        descriptionText = await format_text(cfg["request-embed"]["description"], mention1=interaction.user.mention, mention2=opponent.mention, rating1=rating1, rating2=rating2)
+        footerText = await format_text(cfg["request-embed"]["opponent-selected-footer"], quality=client.env.quality_1vs1(client.env.Rating(selfRating[0],selfRating[1]),client.env.Rating(oppRating[0],oppRating[1]))*100)
         embed = discord.Embed(
-            title="CHALLENGE REQUEST",
-            description=f"{interaction.user.mention} ({int(selfRating[0])}±{int(selfRating[1])}) has requested to challenge {opponent.mention} ({int(oppRating[0])}±{int(oppRating[1])}).",
-            color=discord.Color.from_rgb(255,0,100)
+            title=cfg["request-embed"]["title"],
+            description=descriptionText,
+            color=discord.Color.from_rgb(*cfg["request-embed"]["color"])
         )
-        embed.set_footer(text=f"This challenge has a quality of {env.quality_1vs1(env.Rating(selfRating[0],selfRating[1]),env.Rating(oppRating[0],oppRating[1]))*100:.1f}%.")
+        embed.set_footer(text=footerText)
         
         view = views.ChallengeView(interaction.user, opponent, on_accept)
-        await interaction.response.send_message(content=f"You've been challenged, {opponent.mention}!", embed=embed, view=view)
+        msgContent = await format_text(cfg["request-content"], mention=opponent.mention)
+        await interaction.response.send_message(content=msgContent, embed=embed, view=view)
         view.message = await interaction.original_response()
     else:
         ratings = await db.get_all_ratings(interaction.guild.id)
         selfRating = await db.get_rating(interaction.guild.id, interaction.user.id)
         if selfRating is None:
-            await interaction.response.send_message("You are not currently opted into the rating system, use /opt to begin!")
+            await interaction.response.send_message(cfg["self-not-opted"])
             return
 
         currentChoice = [0.0, None]
         for key in ratings:
             if key == str(interaction.user.id):
                 continue
-            quality = env.quality_1vs1(env.Rating(selfRating[0], selfRating[1]), env.Rating(ratings[key][0], ratings[key][1]))
+            for c in challenges:
+                if key in c.split("-"):
+                    continue
+            quality = client.env.quality_1vs1(client.env.Rating(selfRating[0], selfRating[1]), client.env.Rating(ratings[key][0], ratings[key][1]))
             if quality > currentChoice[0]:
                 currentChoice = [quality, key]
+        if currentChoice[1] is None:
+            await interaction.response.send_message(cfg["no-available-players"], ephemeral=True)
+            return
 
         member = await interaction.guild.fetch_member(int(currentChoice[1]))
         memberRating = await db.get_rating(interaction.guild.id, member.id)
+        descriptionText = await format_text(cfg["request-embed"]["description"], mention1=interaction.user.mention, mention2=member.mention, rating1=rating1, rating2=rating2)
+        footerText = await format_text(cfg["request-embed"]["matchmade-footer"], quality=currentChoice[0]*100)
         embed = discord.Embed(
-            title="CHALLENGE REQUEST",
-            description=f"{interaction.user.mention} ({int(selfRating[0])}±{int(selfRating[1])}) has requested to challenge {member.mention} ({int(memberRating[0])}±{int(memberRating[1])}).",
-            color=discord.Color.from_rgb(255,0,0)
+            title=cfg["request-embed"]["title"],
+            description=descriptionText,
+            color=discord.Color.from_rgb(*cfg["request-embed"]["color"])
         )
-        embed.set_footer(text=f"This challenge was matchmade with a quality of {currentChoice[0]*100:.1f}%.")
+        embed.set_footer(text=footerText)
         
         view = views.ChallengeView(interaction.user, member, on_accept)
-        await interaction.response.send_message(content=f"You've been challenged, {member.mention}!", embed=embed, view=view)
+        msgContent = await format_text(cfg["request-content"], mention=member.mention)
+        await interaction.response.send_message(content=msgContent, embed=embed, view=view)
         view.message = await interaction.original_response()
 
 @client.tree.command(name="report", description="Report the results of your active challenge.")
@@ -192,21 +256,21 @@ async def report(interaction: discord.Interaction, your_score: int, their_score:
         
         reporterRatingValues = await db.get_rating(interaction.guild.id, reporter.id)
         confirmerRatingValues = await db.get_rating(interaction.guild.id, confirmer.id)
-        reporterRating = env.Rating(reporterRatingValues[0], reporterRatingValues[1])
-        confirmerRating = env.Rating(confirmerRatingValues[0], confirmerRatingValues[1])
-        reporterNewRating = env.Rating()
-        confirmerNewRating = env.Rating()
+        reporterRating = client.env.Rating(reporterRatingValues[0], reporterRatingValues[1])
+        confirmerRating = client.env.Rating(confirmerRatingValues[0], confirmerRatingValues[1])
+        reporterNewRating = client.env.Rating()
+        confirmerNewRating = client.env.Rating()
 
         if score[0] == score[1]:
-            reporterNewRating, confirmerNewRating = env.rate_1vs1(reporterRating, confirmerRating, drawn=True)
+            reporterNewRating, confirmerNewRating = client.env.rate_1vs1(reporterRating, confirmerRating, drawn=True)
             await db.add_match_data(interaction.guild.id, reporter.id, confirmer.id, 2)
             await db.add_match_data(interaction.guild.id, confirmer.id, reporter.id, 2)
         elif score[0] > score[1]:
-            reporterNewRating, confirmerNewRating = env.rate_1vs1(reporterRating, confirmerRating)
+            reporterNewRating, confirmerNewRating = client.env.rate_1vs1(reporterRating, confirmerRating)
             await db.add_match_data(interaction.guild.id, reporter.id, confirmer.id, 0)
             await db.add_match_data(interaction.guild.id, confirmer.id, reporter.id, 1)
         elif score[0] < score[1]:
-            confirmerNewRating, reporterNewRating = env.rate_1vs1(confirmerRating, reporterRating)
+            confirmerNewRating, reporterNewRating = client.env.rate_1vs1(confirmerRating, reporterRating)
             await db.add_match_data(interaction.guild.id, reporter.id, confirmer.id, 1)
             await db.add_match_data(interaction.guild.id, confirmer.id, reporter.id, 0)
 
@@ -284,10 +348,10 @@ async def character(interaction: discord.Interaction, character: str):
 @app_commands.default_permissions(administrator=True)
 async def reset(interaction: discord.Interaction):
     await interaction.response.defer()
-    await db.set_all_ratings(interaction.guild.id, env.mu, env.sigma)
+    await db.set_all_ratings(interaction.guild.id, client.env.mu, client.env.sigma)
     embed = discord.Embed(
         title="RATING RESET",
-        description=f"Everyone's ratings have been reset to {env.mu}±{env.sigma}. This reset was initiated by {interaction.user.mention}. If this was a mistake, a backup is available with /restore.",
+        description=f"Everyone's ratings have been reset to {client.env.mu}±{client.env.sigma}. This reset was initiated by {interaction.user.mention}. If this was a mistake, a backup is available with /restore.",
         color=discord.Color.from_rgb(255, 0, 255)
     )
     await interaction.followup.send("@everyone", embed=embed)
@@ -324,9 +388,9 @@ async def decide(interaction: discord.Interaction, winner: discord.Member, drawn
 
         winnerRatingValues = await db.get_rating(interaction.guild.id, winner.id)
         otherRatingValues = await db.get_rating(interaction.guild.id, otherMember.id)
-        winnerRating = env.Rating(winnerRatingValues[0], winnerRatingValues[1])
-        otherRating = env.Rating(otherRatingValues[0], otherRatingValues[1])
-        winnerNewRating, otherNewRating = env.rate_1vs1(winnerRating, otherRating, drawn=drawn)
+        winnerRating = client.env.Rating(winnerRatingValues[0], winnerRatingValues[1])
+        otherRating = client.env.Rating(otherRatingValues[0], otherRatingValues[1])
+        winnerNewRating, otherNewRating = client.env.rate_1vs1(winnerRating, otherRating, drawn=drawn)
 
         await db.set_rating(interaction.guild.id, winner.id, winnerNewRating.mu, winnerNewRating.sigma)
         await db.set_rating(interaction.guild.id, otherMember.id, otherNewRating.mu, otherNewRating.sigma)

@@ -19,18 +19,7 @@ class ChallengeView(discord.ui.View):
             return
         self.disable_all()
         await interaction.message.edit(view=self)
-        
-        challengerRating = await db.get_rating(interaction.guild.id, self.challenger.id)
-        oppRating = await db.get_rating(interaction.guild.id, self.opponent.id)
-        embed = discord.Embed(
-            title="CHALLENGE INITIATED",
-            description=f"{self.challenger.mention} ({int(challengerRating[0])}±{int(challengerRating[1])}) VS {self.opponent.mention} ({int(oppRating[0])}±{int(oppRating[1])})",
-            color=discord.Color.from_rgb(255,0,0)
-        )
-        embed.set_footer(text="Use /report to finalize challenge with set results.")
-
-        await interaction.response.send_message(f"{self.challenger.mention}, your challenge has been accepted.", embed=embed)
-        await self.on_accept(self.challenger, self.opponent)
+        await self.on_accept(self.challenger, self.opponent, interaction)
 
     @discord.ui.button(label="Decline", style=discord.ButtonStyle.red)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):

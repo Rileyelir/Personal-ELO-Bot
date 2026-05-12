@@ -137,3 +137,11 @@ async def get_character(serverID: int, userID: int):
         return characters[serverID][userID]
     except KeyError:
         return None
+
+async def get_config(callback):
+    cfg = await get_json("configuration.json")
+    if cfg is None:
+        default = await callback()
+        await set_json("configuration.json", default)
+        return default
+    return cfg
