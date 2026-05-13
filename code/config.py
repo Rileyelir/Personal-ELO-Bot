@@ -39,6 +39,7 @@ async def return_default(): # Returns configuration.json to the default configur
         },
         "challenge": {
             "already-in-active": "One or both players of the accepted challenge are already in an active challenge.",
+            "opponent-afk": "The player you challenged is currently AFK.",
             "self-active-fail": "You already have an active challenge out with {mention}.",
             "opponent-active-fail": "The selected opponent is already in a challenge.",
             "no-available-players": "No available players could be found to challenge.",
@@ -108,7 +109,11 @@ async def return_default(): # Returns configuration.json to the default configur
             "content": "{mention1} and {mention2}, your challenge has been decided.",
             "challenge-not-found": "Could not find an active challenge for the specified winner."
         },
-        "character": "Your character has been successfully set to \"{character}\"."
+        "character": "Your character has been successfully set to \"{character}\".",
+        "afk": {
+            "on": "AFK has been turned on. Enjoy your peace!",
+            "off": "AFK has been turned off. Get to fighting!"
+        }
     }
 
 async def get_cfg():

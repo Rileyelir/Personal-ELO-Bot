@@ -40,6 +40,9 @@ class Client(discord.Client):
 
 client = Client()
 
+challenges = []
+afkList = []
+
 # ---------------------------- Extra Functions
 
 async def format_text(template: str, **kwargs):
@@ -140,8 +143,6 @@ async def leaderboard(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-challenges = []
-
 @client.tree.command(name="challenge", description="Find an optimal opponent to challenge or manually select someone to challenge.")
 async def challenge(interaction: discord.Interaction, opponent: discord.Member = None):
     cfg = client.config["challenge"]
@@ -188,6 +189,9 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
         if opponent.id == client.user.id:
             await interaction.response.send_message(cfg["cant-challenge-bot"], ephemeral=True)
             return
+        if opponent.id in afkList:
+            await interaction.response.send_message(cfg["opponent-afk"], ephemeral=True)
+            return
 
         oppRating = await db.get_rating(interaction.guild.id, opponent.id)
         selfRating = await db.get_rating(interaction.guild.id, interaction.user.id)
@@ -220,7 +224,7 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
 
         currentChoice = [0.0, None]
         for key in ratings:
-            if key == str(interaction.user.id):
+            if key == str(interaction.user.id) or int(key) in afkList:
                 continue
             for c in challenges:
                 if key in c.split("-"):
@@ -234,6 +238,8 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
 
         member = await interaction.guild.fetch_member(int(currentChoice[1]))
         memberRating = await db.get_rating(interaction.guild.id, member.id)
+        rating1 = await format_text(client.config["rating-format"], rating=int(selfRating[0]), uncertainty=int(selfRating[1]))
+        rating2 = await format_text(client.config["rating-format"], rating=int(memberRating[0]), uncertainty=int(memberRating[1]))
         descriptionText = await format_text(cfg["request-embed"]["description"], mention1=interaction.user.mention, mention2=member.mention, rating1=rating1, rating2=rating2)
         footerText = await format_text(cfg["request-embed"]["matchmade-footer"], quality=currentChoice[0]*100)
         embed = discord.Embed(
@@ -358,6 +364,16 @@ async def character(interaction: discord.Interaction, character: str):
     await db.set_character(interaction.guild.id, interaction.user.id, character)
     msgContent = await format_text(client.config["character"], character=character)
     await interaction.response.send_message(msgContent, ephemeral=True)
+
+@client.tree.command(name="afk", description="Toggle afk status, turns off incoming challenges.")
+async def afk(interaction: discord.Interaction):
+    cfg = client.config["afk"]
+    if interaction.user.id in afkList:
+        afkList.remove(interaction.user.id)
+        await interaction.response.send_message(cfg["off"], ephemeral=True)
+    else:
+        afkList.append(interaction.user.id)
+        await interaction.response.send_message(cfg["on"], ephemeral=True)
 
 # ---------------------------- Admin Commands
 
