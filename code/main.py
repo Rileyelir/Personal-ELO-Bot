@@ -66,10 +66,10 @@ async def info(interaction: discord.Interaction):
 @client.tree.command(name="opt", description="Enter the ranked system in this server.")
 async def opt(interaction: discord.Interaction):
     cfg = client.config["opt"]
-    newRating = client.env.Rating(500, 160)
-    result = await db.get_rating(interaction.guild.id, interaction.user.id)
+    newRating = client.env.Rating(client.env.mu, client.env.sigma)
+    result = await db.get_rating(interaction.user.id)
     if not result:
-        await db.set_rating(interaction.guild.id, interaction.user.id, newRating.mu, newRating.sigma)
+        await db.set_rating(interaction.user.id, newRating.mu, newRating.sigma)
         ratingText = await format_text(client.config["rating-format"], rating=int(newRating.mu), uncertainty=int(newRating.sigma))
         msgContent = await format_text(cfg["success"], rating=ratingText)
         await interaction.response.send_message(msgContent, ephemeral=True)
@@ -80,9 +80,9 @@ async def opt(interaction: discord.Interaction):
 async def check(interaction: discord.Interaction, member: discord.Member = None):
     cfg = client.config["check"]
     member = interaction.user if member is None else member
-    result = await db.get_rating(interaction.guild.id, member.id)
-    matchData = await db.get_match_data(interaction.guild.id, member.id)
-    character = await db.get_character(interaction.guild.id, member.id)
+    result = await db.get_rating(member.id)
+    matchData = await db.get_match_data(member.id)
+    character = await db.get_character(member.id)
     if character is None:
         character = cfg["no-character-value"]
 
@@ -121,7 +121,7 @@ async def check(interaction: discord.Interaction, member: discord.Member = None)
 @client.tree.command(name="leaderboard", description="See the leaderboard for the server.")
 async def leaderboard(interaction: discord.Interaction):
     cfg = client.config["leaderboard"]
-    ratings = await db.get_all_ratings(interaction.guild.id)
+    ratings = await db.get_all_ratings()
     if ratings is None:
         return
 
@@ -153,8 +153,8 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
                 await acceptInteraction.response.send_message(cfg["already-in-active"], ephemeral=True)
                 return
         
-        challengerRating = await db.get_rating(interaction.guild.id, m1.id)
-        oppRating = await db.get_rating(interaction.guild.id, m2.id)
+        challengerRating = await db.get_rating(m1.id)
+        oppRating = await db.get_rating(m2.id)
         rating1 = await format_text(client.config["rating-format"], rating=int(challengerRating[0]), uncertainty=int(challengerRating[1]))
         rating2 = await format_text(client.config["rating-format"], rating=int(oppRating[0]), uncertainty=int(oppRating[1]))
         descriptionText = await format_text(cfg["accept-embed"]["description"], mention1=m1.mention, mention2=m2.mention, rating1=rating1, rating2=rating2)
@@ -193,8 +193,8 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
             await interaction.response.send_message(cfg["opponent-afk"], ephemeral=True)
             return
 
-        oppRating = await db.get_rating(interaction.guild.id, opponent.id)
-        selfRating = await db.get_rating(interaction.guild.id, interaction.user.id)
+        oppRating = await db.get_rating(opponent.id)
+        selfRating = await db.get_rating(interaction.user.id)
 
         if oppRating == None or selfRating == None:
             await interaction.response.send_message(cfg["not-opted"], ephemeral=True)
@@ -216,8 +216,8 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
         await interaction.response.send_message(content=msgContent, embed=embed, view=view)
         view.message = await interaction.original_response()
     else:
-        ratings = await db.get_all_ratings(interaction.guild.id)
-        selfRating = await db.get_rating(interaction.guild.id, interaction.user.id)
+        ratings = await db.get_all_ratings()
+        selfRating = await db.get_rating(interaction.user.id)
         if selfRating is None:
             await interaction.response.send_message(cfg["self-not-opted"])
             return
@@ -237,7 +237,7 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
             return
 
         member = await interaction.guild.fetch_member(int(currentChoice[1]))
-        memberRating = await db.get_rating(interaction.guild.id, member.id)
+        memberRating = await db.get_rating(member.id)
         rating1 = await format_text(client.config["rating-format"], rating=int(selfRating[0]), uncertainty=int(selfRating[1]))
         rating2 = await format_text(client.config["rating-format"], rating=int(memberRating[0]), uncertainty=int(memberRating[1]))
         descriptionText = await format_text(cfg["request-embed"]["description"], mention1=interaction.user.mention, mention2=member.mention, rating1=rating1, rating2=rating2)
@@ -257,13 +257,13 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
 @client.tree.command(name="report", description="Report the results of your active challenge.")
 async def report(interaction: discord.Interaction, your_score: int, their_score: int):
     cfg = client.config["report"]
-    async def on_confirm(interaction: discord.Interaction, reporter: discord.Member, confirmer: discord.Member, score: [int]):
+    async def on_confirm(interaction: discord.Interaction, reporter: discord.Member, confirmer: discord.Member, score: list[int]):
         for c in challenges:
             if str(reporter.id) in c.split("-"):
                 challenges.remove(c)
         
-        reporterRatingValues = await db.get_rating(interaction.guild.id, reporter.id)
-        confirmerRatingValues = await db.get_rating(interaction.guild.id, confirmer.id)
+        reporterRatingValues = await db.get_rating(reporter.id)
+        confirmerRatingValues = await db.get_rating(confirmer.id)
         reporterRating = client.env.Rating(reporterRatingValues[0], reporterRatingValues[1])
         confirmerRating = client.env.Rating(confirmerRatingValues[0], confirmerRatingValues[1])
         reporterNewRating = client.env.Rating()
@@ -271,19 +271,19 @@ async def report(interaction: discord.Interaction, your_score: int, their_score:
 
         if score[0] == score[1]:
             reporterNewRating, confirmerNewRating = client.env.rate_1vs1(reporterRating, confirmerRating, drawn=True)
-            await db.add_match_data(interaction.guild.id, reporter.id, confirmer.id, 2)
-            await db.add_match_data(interaction.guild.id, confirmer.id, reporter.id, 2)
+            await db.add_match_data(reporter.id, confirmer.id, 2)
+            await db.add_match_data(confirmer.id, reporter.id, 2)
         elif score[0] > score[1]:
             reporterNewRating, confirmerNewRating = client.env.rate_1vs1(reporterRating, confirmerRating)
-            await db.add_match_data(interaction.guild.id, reporter.id, confirmer.id, 0)
-            await db.add_match_data(interaction.guild.id, confirmer.id, reporter.id, 1)
+            await db.add_match_data(reporter.id, confirmer.id, 0)
+            await db.add_match_data(confirmer.id, reporter.id, 1)
         elif score[0] < score[1]:
             confirmerNewRating, reporterNewRating = client.env.rate_1vs1(confirmerRating, reporterRating)
-            await db.add_match_data(interaction.guild.id, reporter.id, confirmer.id, 1)
-            await db.add_match_data(interaction.guild.id, confirmer.id, reporter.id, 0)
+            await db.add_match_data(reporter.id, confirmer.id, 1)
+            await db.add_match_data(confirmer.id, reporter.id, 0)
 
-        await db.set_rating(interaction.guild.id, reporter.id, reporterNewRating.mu, reporterNewRating.sigma)
-        await db.set_rating(interaction.guild.id, confirmer.id, confirmerNewRating.mu, confirmerNewRating.sigma)
+        await db.set_rating(reporter.id, reporterNewRating.mu, reporterNewRating.sigma)
+        await db.set_rating(confirmer.id, confirmerNewRating.mu, confirmerNewRating.sigma)
 
         embed = discord.Embed(
             title=cfg["confirm-embed"]["title"],
@@ -336,8 +336,8 @@ async def report(interaction: discord.Interaction, your_score: int, their_score:
 
     otherMemberID = activeChallenge[0] if int(activeChallenge[0]) != interaction.user.id else activeChallenge[1]
     otherMember = await interaction.guild.fetch_member(int(otherMemberID))
-    yourRating = await db.get_rating(interaction.guild.id, interaction.user.id)
-    theirRating = await db.get_rating(interaction.guild.id, int(otherMemberID))
+    yourRating = await db.get_rating(interaction.user.id)
+    theirRating = await db.get_rating(int(otherMemberID))
 
     result = "result-lose"
     if your_score > their_score: result = "result-win"
@@ -361,7 +361,7 @@ async def report(interaction: discord.Interaction, your_score: int, their_score:
 
 @client.tree.command(name="character", description="Set your favorite character to show on your player report.")
 async def character(interaction: discord.Interaction, character: str):
-    await db.set_character(interaction.guild.id, interaction.user.id, character)
+    await db.set_character(interaction.user.id, character)
     msgContent = await format_text(client.config["character"], character=character)
     await interaction.response.send_message(msgContent, ephemeral=True)
 
@@ -382,10 +382,10 @@ async def afk(interaction: discord.Interaction):
 async def reset(interaction: discord.Interaction):
     cfg = client.config["reset"]
     await interaction.response.defer()
-    await db.set_all_ratings(interaction.guild.id, client.env.mu, client.env.sigma)
+    await db.set_all_ratings(client.env.mu, client.env.sigma)
 
     rating = await format_text(client.config["rating-format"], rating=int(client.env.mu), uncertainty=int(client.env.sigma))
-    descriptionText = await format_text(cfg["description"], rating=rating, mention=interaction.user.id)
+    descriptionText = await format_text(cfg["description"], rating=rating, mention=interaction.user.mention)
     embed = discord.Embed(
         title=cfg["title"],
         description=descriptionText,
@@ -397,7 +397,7 @@ async def reset(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 async def restore(interaction: discord.Interaction):
     cfg = client.config["restore"]
-    result = await db.restore_ratings(interaction.guild.id)
+    result = await db.restore_ratings()
     descriptionText = await format_text(cfg["description"], mention=interaction.user.mention)
     if result:
         embed = discord.Embed(
@@ -426,16 +426,16 @@ async def decide(interaction: discord.Interaction, winner: discord.Member, drawn
     if selectedChallenge:
         challenges.remove(selectedChallenge)
 
-        winnerRatingValues = await db.get_rating(interaction.guild.id, winner.id)
-        otherRatingValues = await db.get_rating(interaction.guild.id, otherMember.id)
+        winnerRatingValues = await db.get_rating(winner.id)
+        otherRatingValues = await db.get_rating(otherMember.id)
         winnerRating = client.env.Rating(winnerRatingValues[0], winnerRatingValues[1])
         otherRating = client.env.Rating(otherRatingValues[0], otherRatingValues[1])
         winnerNewRating, otherNewRating = client.env.rate_1vs1(winnerRating, otherRating, drawn=drawn)
 
-        await db.set_rating(interaction.guild.id, winner.id, winnerNewRating.mu, winnerNewRating.sigma)
-        await db.set_rating(interaction.guild.id, otherMember.id, otherNewRating.mu, otherNewRating.sigma)
-        await db.add_match_data(interaction.guild.id, winner.id, otherMember.id, 0 if not drawn else 2)
-        await db.add_match_data(interaction.guild.id, otherMember.id, winner.id, 1 if not drawn else 2)
+        await db.set_rating(winner.id, winnerNewRating.mu, winnerNewRating.sigma)
+        await db.set_rating(otherMember.id, otherNewRating.mu, otherNewRating.sigma)
+        await db.add_match_data(winner.id, otherMember.id, 0 if not drawn else 2)
+        await db.add_match_data(otherMember.id, winner.id, 1 if not drawn else 2)
 
         result = "result-win" if not drawn else "result-draw"
         descriptionText = await format_text(cfg[result], admin=interaction.user.mention, winner=winner.mention, loser=otherMember.mention)

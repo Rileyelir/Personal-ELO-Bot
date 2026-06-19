@@ -1,147 +1,83 @@
-import json
 import asyncio
+import json
+import sqlite3 as sql
 
-async def set_json(path: str, data):
-    """Creates or overwrites the .json file path specified."""
-    with open(path, "w") as file:
-        json.dump(data, file, indent=4)
+plrTableExecute = """
+CREATE TABLE IF NOT EXISTS player_data (
+    id INTEGER PRIMARY KEY,
+    mu REAL NOT NULL,
+    sigma REAL NOT NULL,
+    char TEXT
+);
+"""
+matchTableExecute = """
+CREATE TABLE IF NOT EXISTS match_data (
+    plr_id INTEGER NOT NULL,
+    opp_id INTEGER NOT NULL,
+    outcome_code INTEGER NOT NULL,
 
+    FOREIGN KEY (plr_id) REFERENCES player_data(id),
+    FOREIGN KEY (opp_id) REFERENCES player_data(id)
+);
+"""
+
+
+# Program Specific
+async def set_rating(userID: int, mu: float, sigma: float):
+    conn = sql.connect("data.db")
+    conn.execute(plrTableExecute)
+    conn.execute(f"""
+    INSERT INTO player_data (id, mu, sigma)
+    VALUES ({userID}, {mu}, {sigma})
+    ON CONFLICT(id) DO UPDATE SET
+        mu = excluded.mu,
+        sigma = excluded.sigma;
+    """)
+    conn.commit()
+    conn.close()
+
+async def set_all_ratings(mu: float, sigma: float):
+    pass
+
+async def restore_ratings():
+    pass
+
+async def get_rating(userID: int):
+    conn = sql.connect("data.db")
+    conn.execute(plrTableExecute)
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT mu, sigma FROM player_data WHERE id = {userID};")
+    result = cursor.fetchone()
+    conn.close()
+    return result
+
+async def get_all_ratings():
+    pass
+
+async def add_match_data(userID: int, opponentID: int, winLossDraw: int): # winLossDraw is 0 for win, 1 for loss, and 2 for draw
+    userID = str(userID)
+
+async def get_match_data(userID: int):
+    userID = str(userID)
+
+async def set_character(userID: int, character: str):
+    userID = str(userID)
+
+async def get_character(userID: int):
+    userID = str(userID)
+
+# Configuration loading
 async def get_json(path: str):
-    """Returns the result of json.load() from the specified .json file."""
     try:
         with open(path, "r") as file:
             return json.load(file)
     except FileNotFoundError:
         return None
-
-# Program Specific
-async def set_rating(serverID: int, userID: int, mu: float, sigma: float):
-    serverID = str(serverID)
-    userID = str(userID)
-
-    ratings = await get_json("skill-ratings.json")
-    if ratings is None:
-        await set_json("skill-ratings.json", {})
-        ratings = {}
-
-    if serverID not in ratings:
-        ratings[serverID] = {}
-    
-    ratings[serverID][userID] = [mu, sigma]
-    await set_json("skill-ratings.json", ratings)
-
-async def set_all_ratings(serverID: int, mu: float, sigma: float):
-    serverID = str(serverID)
-
-    ratings = await get_json("skill-ratings.json")
-    if ratings is None:
-        await set_json("skill-ratings.json", {})
-        ratings = {}
-    else:
-        await set_json("backup-skill-ratings.json", ratings)
-        print("Skill rating backup created due to mass rating set.")
-
-    if serverID not in ratings:
-        ratings[serverID] = {}
-    
-    for entry in ratings[serverID]:
-        ratings[serverID][entry] = [mu, sigma]
-
-    await set_json("skill-ratings.json", ratings)
-
-async def restore_ratings(serverID: int):
-    serverID = str(serverID)
-    backup = await get_json("backup-skill-ratings.json")
-    if backup:
-        ratings = await get_json("skill-ratings.json")
-        if ratings is None:
-            await set_json("skill-ratings.json", {})
-            ratings = {}
-        ratings[serverID] = backup[serverID]
-        await set_json("skill-ratings.json", ratings)
-        return True
-    else:
-        return False
-
-async def get_rating(serverID: int, userID: int):
-    serverID = str(serverID)
-    userID = str(userID)
-
-    ratings = await get_json("skill-ratings.json")
-    try:
-        return ratings[serverID][userID]
-    except KeyError, TypeError:
-        return None
-
-async def get_all_ratings(serverID: int):
-    serverID = str(serverID)
-    ratings = await get_json("skill-ratings.json")
-    try:
-        return ratings[serverID]
-    except KeyError, TypeError:
-        return None
-
-async def add_match_data(serverID: int, userID: int, opponentID: int, winLossDraw: int): # winLossDraw is 0 for win, 1 for loss, and 2 for draw
-    serverID = str(serverID)
-    userID = str(userID)
-    
-    matchData = await get_json("match-data.json")
-    if matchData is None:
-        matchData = {}
-    if serverID not in matchData:
-        matchData[serverID] = {}
-    if userID not in matchData[serverID]:
-        matchData[serverID][userID] = []
-    
-    matchData[serverID][userID].append([winLossDraw, opponentID])
-    await set_json("match-data.json", matchData)
-
-async def get_match_data(serverID: int, userID: int):
-    serverID = str(serverID)
-    userID = str(userID)
-
-    matchData = await get_json("match-data.json")
-    if matchData is None:
-        matchData = {}
-    if serverID not in matchData:
-        matchData[serverID] = {}
-    if userID not in matchData[serverID]:
-        matchData[serverID][userID] = []
-
-    return matchData[serverID][userID]
-
-async def set_character(serverID: int, userID: int, character: str):
-    serverID = str(serverID)
-    userID = str(userID)
-
-    characters = await get_json("characters.json")
-    if characters is None:
-        characters = {}
-    if serverID not in characters:
-        characters[serverID] = {}
-    
-    characters[serverID][userID] = character
-    await set_json("characters.json", characters)
-
-async def get_character(serverID: int, userID: int):
-    serverID = str(serverID)
-    userID = str(userID)
-
-    characters = await get_json("characters.json")
-    if characters is None:
-        characters = {}
-    if serverID not in characters:
-        characters[serverID] = {}
-    
-    try:
-        return characters[serverID][userID]
-    except KeyError:
-        return None
-
 async def get_config(callback):
     cfg = await get_json("configuration.json")
     if cfg is None:
         default = await callback()
-        await set_json("configuration.json", default)
+        with open("configuration.json", "w") as file:
+            json.dump(default, file, indent=4)
         return default
     return cfg
