@@ -1,5 +1,5 @@
 # ⚔️ Personal ELO Bot (PELOB) ⚔️
-
+![PELOB BANNER](PELOB_Banner.png)
 ---
 
 ## What Is PELOB ❓
