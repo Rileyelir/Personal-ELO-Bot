@@ -42,6 +42,7 @@ client = Client()
 
 challenges = []
 afkList = []
+queueList = []
 
 # ---------------------------- Extra Functions
 
@@ -122,7 +123,8 @@ async def check(interaction: discord.Interaction, member: discord.Member = None)
 async def leaderboard(interaction: discord.Interaction):
     cfg = client.config["leaderboard"]
     ratings = await db.get_all_ratings()
-    if ratings is None:
+    if ratings == {}:
+        await interaction.response.send_message(cfg["no-data"], ephemeral=True)
         return
 
     embed = discord.Embed(
@@ -224,7 +226,7 @@ async def challenge(interaction: discord.Interaction, opponent: discord.Member =
 
         currentChoice = [0.0, None]
         for key in ratings:
-            if key == str(interaction.user.id) or int(key) in afkList:
+            if key == interaction.user.id or int(key) in afkList:
                 continue
             for c in challenges:
                 if key in c.split("-"):
@@ -269,18 +271,18 @@ async def report(interaction: discord.Interaction, your_score: int, their_score:
         reporterNewRating = client.env.Rating()
         confirmerNewRating = client.env.Rating()
 
-        if score[0] == score[1]:
+        if score[0] == score[1]: # score[0] is the reporter's, score[1] is the confirmer's
             reporterNewRating, confirmerNewRating = client.env.rate_1vs1(reporterRating, confirmerRating, drawn=True)
-            await db.add_match_data(reporter.id, confirmer.id, 2)
-            await db.add_match_data(confirmer.id, reporter.id, 2)
+            await db.add_match_data(reporter.id, confirmer.id, 2, [score[0], score[1]])
+            await db.add_match_data(confirmer.id, reporter.id, 2, [score[1], score[0]])
         elif score[0] > score[1]:
             reporterNewRating, confirmerNewRating = client.env.rate_1vs1(reporterRating, confirmerRating)
-            await db.add_match_data(reporter.id, confirmer.id, 0)
-            await db.add_match_data(confirmer.id, reporter.id, 1)
+            await db.add_match_data(reporter.id, confirmer.id, 0, [score[0], score[1]])
+            await db.add_match_data(confirmer.id, reporter.id, 1, [score[1], score[0]])
         elif score[0] < score[1]:
             confirmerNewRating, reporterNewRating = client.env.rate_1vs1(confirmerRating, reporterRating)
-            await db.add_match_data(reporter.id, confirmer.id, 1)
-            await db.add_match_data(confirmer.id, reporter.id, 0)
+            await db.add_match_data(reporter.id, confirmer.id, 1, [score[0], score[1]])
+            await db.add_match_data(confirmer.id, reporter.id, 0, [score[1], score[0]])
 
         await db.set_rating(reporter.id, reporterNewRating.mu, reporterNewRating.sigma)
         await db.set_rating(confirmer.id, confirmerNewRating.mu, confirmerNewRating.sigma)
@@ -375,6 +377,57 @@ async def afk(interaction: discord.Interaction):
         afkList.append(interaction.user.id)
         await interaction.response.send_message(cfg["on"], ephemeral=True)
 
+@client.tree.command(name="queue", description="Enter a queue to challenge a player looking for a match.")
+async def queue(interaction: discord.Interaction):
+    cfg = client.config["queue"]
+    if interaction.user in queueList:
+        queueList.remove(interaction.user)
+        await interaction.response.send_message(cfg["removed"], ephemeral=True)
+        return
+
+    if len(queueList) != 0: # Player found in queue
+        opponent = queueList[0]
+        queueList.remove(queueList[0])
+        await challenge.callback(interaction, opponent)
+    else: # Player not found in queue
+        queueList.append(interaction.user)
+        await interaction.response.send_message(cfg["added"], ephemeral=True)
+
+@client.tree.command(name="history", description="Get match history for yourself or another player.")
+async def history(interaction: discord.Interaction, member: discord.Member = None):
+    cfg = client.config["history"]
+    member = interaction.user if member is None else member
+    matchData = await db.get_match_data(member.id)
+    matchData.reverse()
+
+    descriptionText = await format_text(cfg["description"], mention=member.mention)
+    embed = discord.Embed(
+        title=cfg["title"],
+        description=descriptionText,
+        color=discord.Color.from_rgb(*cfg["color"])
+    )
+    embed.set_thumbnail(url=member.avatar.url)
+
+    for match in matchData: # reversed so newest matches are first
+        result = None
+        match match[0]:
+            case 0:
+                result = cfg["win"]
+            case 1:
+                result = cfg["loss"]
+            case 2:
+                result = cfg["draw"]
+        
+        if match[2] is None:
+            result = result + " (Admin)"
+        else:
+            scoreFormatted = await format_text(client.config["score-format"], score1=match[2], score2=match[3])
+            result = result + f" ({scoreFormatted})"
+        opponent = await interaction.guild.fetch_member(match[1])
+        embed.add_field(name=opponent.display_name, value=result)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 # ---------------------------- Admin Commands
 
 @client.tree.command(name="reset", description="ADMIN ONLY: Resets every player's rating to default.")
@@ -397,17 +450,14 @@ async def reset(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 async def restore(interaction: discord.Interaction):
     cfg = client.config["restore"]
-    result = await db.restore_ratings()
+    await db.restore_ratings()
     descriptionText = await format_text(cfg["description"], mention=interaction.user.mention)
-    if result:
-        embed = discord.Embed(
-            title=cfg["title"],
-            description=descriptionText,
-            color=discord.Color.from_rgb(*cfg["color"])
-        )
-        await interaction.response.send_message(cfg["content"], embed=embed)
-    else:
-        await interaction.response.send_message(cfg["no-backup"], ephemeral=True)
+    embed = discord.Embed(
+        title=cfg["title"],
+        description=descriptionText,
+        color=discord.Color.from_rgb(*cfg["color"])
+    )
+    await interaction.response.send_message(cfg["content"], embed=embed)
 
 @client.tree.command(name="decide", description="ADMIN ONLY: Make the decision on an ongoing challenge, used for disputes.")
 @app_commands.default_permissions(administrator=True)

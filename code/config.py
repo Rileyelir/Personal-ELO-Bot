@@ -35,7 +35,8 @@ async def return_default(): # Returns configuration.json to the default configur
         },
         "leaderboard": {
             "title": "Leaderboard",
-            "color": [0, 0, 255]
+            "color": [0, 0, 255],
+            "no-data": "There is no data present, try using /opt to be the first one on the leaderboard!"
         },
         "challenge": {
             "already-in-active": "One or both players of the accepted challenge are already in an active challenge.",
@@ -99,7 +100,6 @@ async def return_default(): # Returns configuration.json to the default configur
             "description": "Everyone's ratings have been rolled back to the previous backup, most likely from the time before a reset occured. Make sure to check your ratings! This rollback was initiated by {mention}.",
             "color": [255, 0, 255],
             "content": "All ratings have been restored @everyone.",
-            "no-backup": "No backup could be found. If one does exist, make sure it is named \"backup-skill-ratings.json\"."
         },
         "decide": {
             "title": "CHALLENGE DECISION",
@@ -111,8 +111,20 @@ async def return_default(): # Returns configuration.json to the default configur
         },
         "character": "Your character has been successfully set to \"{character}\".",
         "afk": {
-            "on": "AFK has been turned on. Enjoy your peace!",
+            "on": "AFK has been turned on. Enjoy your peace! (If the bot goes offline, your AFK status will be removed from memory.)",
             "off": "AFK has been turned off. Get to fighting!"
+        },
+        "queue": {
+            "added": "You have been added to the queue, you will be challenged once someone else joins the queue! Use this command again to leave the queue.",
+            "removed": "You have been removed from the queue successfully."
+        },
+        "history": {
+            "title": "MATCH HISTORY",
+            "description": "This is the match history for {mention}.",
+            "color": [0, 0, 255],
+            "win": "Win",
+            "loss": "Loss",
+            "draw": "Draw"
         }
     }
 
